@@ -11,6 +11,11 @@ const IOU_THRESHOLD = 0.45;
 
 let session = null;
 let isProcessing = false;
+let lastBoxes = [];
+let lastProcessTime = 0;
+
+// Ограничение частоты детекции (каждые 150 мс = ~6-7 кадров/сек для модели)
+const PROCESS_INTERVAL = 150; 
 
 const loadModelBtn = document.getElementById('loadModelBtn');
 const startCameraBtn = document.getElementById('startCameraBtn');
@@ -24,9 +29,15 @@ const video = document.getElementById('webcamVideo');
 const canvas = document.getElementById('outputCanvas');
 const ctx = canvas.getContext('2d');
 
+// Создаем буферный canvas единоразово вне цикла для исключения сборок мусора (GC)
+const offscreenCanvas = document.createElement('canvas');
+offscreenCanvas.width = MODEL_SIZE;
+offscreenCanvas.height = MODEL_SIZE;
+const offCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+
 const COLORS = LABELS.map((_, i) => `hsl(${(i * 360) / LABELS.length}, 100%, 50%)`);
 
-// --- ШАГ 1: Загрузка модели с отслеживанием прогресса ---
+// --- ШАГ 1: Загрузка модели в память устройства ---
 loadModelBtn.addEventListener('click', async () => {
   loadModelBtn.disabled = true;
   statusText.textContent = 'Скачивание модели...';
@@ -67,11 +78,12 @@ loadModelBtn.addEventListener('click', async () => {
     statusText.textContent = 'Инициализация ONNX Runtime...';
 
     ort.env.wasm.numThreads = 1;
+    // Приоритет отдается аппаратным ускорителям WebGPU / WebGL
     session = await ort.InferenceSession.create(modelBuffer.buffer, {
-      executionProviders: ['webgpu', 'wasm']
+      executionProviders: ['webgpu', 'webgl', 'wasm']
     });
 
-    statusText.textContent = 'Модель готова! Нажмите "Открыть камеру".';
+    statusText.textContent = 'Модель загружена в память! Нажмите "Открыть камеру".';
     progressContainer.style.display = 'none';
     startCameraBtn.disabled = false;
   } catch (error) {
@@ -115,13 +127,8 @@ startCameraBtn.addEventListener('click', async () => {
   }
 });
 
-// --- Препроцессинг кадров с переводом в Grayscale ---
+// --- Оптимизированный препроцессинг (Grayscale) ---
 function preprocess(source) {
-  const offscreen = document.createElement('canvas');
-  offscreen.width = MODEL_SIZE;
-  offscreen.height = MODEL_SIZE;
-  const offCtx = offscreen.getContext('2d');
-
   offCtx.drawImage(source, 0, 0, MODEL_SIZE, MODEL_SIZE);
   const imgData = offCtx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE).data;
 
@@ -214,7 +221,7 @@ function calculateIoU(a, b) {
   return unionArea === 0 ? 0 : interArea / unionArea;
 }
 
-// --- Обновление списка детекций в панели UI ---
+// --- Вывод детекций в списочный блок UI ---
 function updateDetectionsList(boxes) {
   detectionsList.innerHTML = '';
 
@@ -238,8 +245,8 @@ function updateDetectionsList(boxes) {
   });
 }
 
-// --- Отрисовка результатов ---
-function renderResults(boxes) {
+// --- Плавная отрисовка кадра и наложение найденных рамок ---
+function renderFrame(boxes) {
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
   ctx.lineWidth = Math.max(2, Math.round(canvas.width / 300));
@@ -261,29 +268,29 @@ function renderResults(boxes) {
     ctx.fillStyle = "#ffffff";
     ctx.fillText(text, box.x + 4, box.y - 4);
   });
-
-  updateDetectionsList(boxes);
 }
 
-// --- Цикл обработки кадров ---
-async function processFrame() {
-  if (isProcessing) {
-    requestAnimationFrame(processFrame);
-    return;
+// --- Оптимизированный главный цикл ---
+async function processFrame(timestamp) {
+  // Видео кадра выводится с высокой частотой (60 FPS)
+  renderFrame(lastBoxes);
+
+  // Инференс модели выполняется с фиксированным интервалом
+  if (!isProcessing && (timestamp - lastProcessTime >= PROCESS_INTERVAL)) {
+    isProcessing = true;
+    lastProcessTime = timestamp;
+
+    try {
+      const tensor = preprocess(video);
+      const output = await session.run({ images: tensor });
+      lastBoxes = parseOutput(output.output0.data, canvas.width, canvas.height);
+      updateDetectionsList(lastBoxes);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      isProcessing = false;
+    }
   }
 
-  isProcessing = true;
-
-  try {
-    const tensor = preprocess(video);
-    const output = await session.run({ images: tensor });
-    const boxes = parseOutput(output.output0.data, canvas.width, canvas.height);
-
-    renderResults(boxes);
-  } catch (error) {
-    console.error(error);
-  }
-
-  isProcessing = false;
   requestAnimationFrame(processFrame);
 }
