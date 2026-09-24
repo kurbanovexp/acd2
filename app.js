@@ -1,4 +1,3 @@
-// 1. Константы и классы модели (18 классов из вашего датасета)
 const LABELS = [
   "abrasion", "broken_fibers", "bubble", "buckle", "buckle_line",
   "corrosion", "crack_composite", "crack_metal", "crease", "defect",
@@ -11,55 +10,62 @@ const CONF_THRESHOLD = 0.25;
 const IOU_THRESHOLD = 0.45;
 
 let session = null;
+let isProcessing = false;
 
-const imageInput = document.getElementById('imageInput');
+const video = document.getElementById('webcamVideo');
 const statusText = document.getElementById('status');
 const canvas = document.getElementById('outputCanvas');
 const ctx = canvas.getContext('2d');
 
-// Цвета для отрисовки разных классов
 const COLORS = LABELS.map((_, i) => `hsl(${(i * 360) / LABELS.length}, 100%, 50%)`);
 
-// 2. Инициализация модели при загрузке страницы
-async function loadModel() {
+async function init() {
   try {
-    // Включаем WebGPU / WASM ускорение
     ort.env.wasm.numThreads = 1;
     session = await ort.InferenceSession.create('./model.onnx', {
       executionProviders: ['webgpu', 'wasm']
     });
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
     
-    statusText.textContent = 'Модель готова к работе!';
-    imageInput.disabled = false;
+    video.srcObject = stream;
+    await video.play();
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    statusText.textContent = 'Работает';
+    requestAnimationFrame(processFrame);
   } catch (error) {
     console.error(error);
-    statusText.textContent = 'Ошибка загрузки модели. Проверьте консоль.';
+    statusText.textContent = 'Ошибка доступа к камере или загрузки модели.';
   }
 }
 
-// 3. Препроцессинг картинки
-function preprocess(img) {
+function preprocess(source) {
   const offscreen = document.createElement('canvas');
   offscreen.width = MODEL_SIZE;
   offscreen.height = MODEL_SIZE;
   const offCtx = offscreen.getContext('2d');
-  
-  offCtx.drawImage(img, 0, 0, MODEL_SIZE, MODEL_SIZE);
+
+  offCtx.drawImage(source, 0, 0, MODEL_SIZE, MODEL_SIZE);
   const imgData = offCtx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE).data;
 
   const float32Data = new Float32Array(3 * MODEL_SIZE * MODEL_SIZE);
   const planeSize = MODEL_SIZE * MODEL_SIZE;
 
   for (let i = 0; i < planeSize; i++) {
-    float32Data[i] = imgData[i * 4] / 255.0;                   // R
-    float32Data[planeSize + i] = imgData[i * 4 + 1] / 255.0;   // G
-    float32Data[2 * planeSize + i] = imgData[i * 4 + 2] / 255.0; // B
+    float32Data[i] = imgData[i * 4] / 255.0;
+    float32Data[planeSize + i] = imgData[i * 4 + 1] / 255.0;
+    float32Data[2 * planeSize + i] = imgData[i * 4 + 2] / 255.0;
   }
 
   return new ort.Tensor('float32', float32Data, [1, 3, MODEL_SIZE, MODEL_SIZE]);
 }
 
-// 4. Парсинг выходов YOLOv8 (тензор [1, 22, 8400])
 function parseOutput(data, origW, origH) {
   const anchors = 8400;
   const numClasses = 18;
@@ -101,7 +107,6 @@ function parseOutput(data, origW, origH) {
   return applyNMS(boxes);
 }
 
-// 5. Алгоритм NMS (Non-Maximum Suppression)
 function applyNMS(boxes) {
   boxes.sort((a, b) => b.score - a.score);
   const selected = [];
@@ -131,23 +136,18 @@ function calculateIoU(a, b) {
   return unionArea === 0 ? 0 : interArea / unionArea;
 }
 
-// 6. Отрисовка рамок и подписей на Canvas
-function renderResults(img, boxes) {
-  canvas.width = img.width;
-  canvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
+function renderResults(boxes) {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  ctx.lineWidth = Math.max(2, Math.round(img.width / 300));
-  ctx.font = `${Math.max(14, Math.round(img.width / 40))}px sans-serif`;
+  ctx.lineWidth = Math.max(2, Math.round(canvas.width / 300));
+  ctx.font = `${Math.max(14, Math.round(canvas.width / 40))}px sans-serif`;
 
   boxes.forEach(box => {
     const color = COLORS[box.classId];
 
-    // Отрисовка прямоугольника
     ctx.strokeStyle = color;
     ctx.strokeRect(box.x, box.y, box.w, box.h);
 
-    // Подпись класса и точности
     const text = `${box.label} ${(box.score * 100).toFixed(0)}%`;
     const textWidth = ctx.measureText(text).width;
     const textHeight = parseInt(ctx.font, 10);
@@ -160,23 +160,26 @@ function renderResults(img, boxes) {
   });
 }
 
-// 7. Обработчик загрузки пользовательского файла
-imageInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+async function processFrame() {
+  if (isProcessing) {
+    requestAnimationFrame(processFrame);
+    return;
+  }
 
-  statusText.textContent = 'Обработка...';
+  isProcessing = true;
 
-  const img = new Image();
-  img.src = URL.createObjectURL(file);
-  await img.decode();
+  try {
+    const tensor = preprocess(video);
+    const output = await session.run({ images: tensor });
+    const boxes = parseOutput(output.output0.data, canvas.width, canvas.height);
 
-  const tensor = preprocess(img);
-  const output = await session.run({ images: tensor });
-  const boxes = parseOutput(output.output0.data, img.width, img.height);
+    renderResults(boxes);
+  } catch (error) {
+    console.error(error);
+  }
 
-  renderResults(img, boxes);
-  statusText.textContent = `Найдено объектов: ${boxes.length}`;
-});
+  isProcessing = false;
+  requestAnimationFrame(processFrame);
+}
 
-loadModel();
+init();
