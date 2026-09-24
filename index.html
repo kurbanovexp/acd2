@@ -3,24 +3,100 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YOLOv8 Детекция Дефектов</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- Подключаем ONNX Runtime Web через CDN -->
+  <title>Детекция дефектов (YOLOv8 ONNX)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      margin: 0;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+      width: 100%;
+      max-width: 400px;
+      margin-bottom: 15px;
+    }
+
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      background-color: #007bff;
+      color: #ffffff;
+      cursor: pointer;
+      width: 100%;
+      transition: background-color 0.2s;
+    }
+
+    button:disabled {
+      background-color: #444444;
+      color: #888888;
+      cursor: not-allowed;
+    }
+
+    .progress-container {
+      width: 100%;
+      display: none;
+      text-align: center;
+    }
+
+    progress {
+      width: 100%;
+      height: 20px;
+    }
+
+    #status {
+      font-size: 14px;
+      color: #00ff66;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    #outputCanvas {
+      max-width: 100%;
+      border: 1px solid #333333;
+      border-radius: 8px;
+    }
+  </style>
+
+  <!-- ONNX Runtime Web -->
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 </head>
 <body>
-  <div class="container">
-    <h1>Детекция дефектов (YOLOv8 ONNX)</h1>
+
+  <h1>Детекция дефектов (YOLOv8 ONNX)</h1>
+
+  <div class="controls">
+    <button id="loadModelBtn">1. Загрузить модель</button>
     
-    <div class="controls">
-      <input type="file" id="imageInput" accept="image/*" disabled>
-      <span id="status">Загрузка модели...</span>
+    <div id="progressContainer" class="progress-container">
+      <progress id="progressBar" value="0" max="100"></progress>
+      <div id="progressText">0%</div>
     </div>
 
-    <div class="stage">
-      <canvas id="outputCanvas"></canvas>
-    </div>
+    <button id="startCameraBtn" disabled>2. Открыть камеру</button>
   </div>
+
+  <div id="status">Нажмите "Загрузить модель" для начала работы.</div>
+
+  <!-- Видеопоток скрыт, отрисовка идёт на Canvas -->
+  <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
+  <canvas id="outputCanvas"></canvas>
 
   <script src="app.js"></script>
 </body>
