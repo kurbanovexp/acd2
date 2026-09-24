@@ -114,7 +114,7 @@ startCameraBtn.addEventListener('click', async () => {
   }
 });
 
-// --- Препроцессинг кадров ---
+// --- Препроцессинг кадров с переводом в Grayscale ---
 function preprocess(source) {
   const offscreen = document.createElement('canvas');
   offscreen.width = MODEL_SIZE;
@@ -128,9 +128,17 @@ function preprocess(source) {
   const planeSize = MODEL_SIZE * MODEL_SIZE;
 
   for (let i = 0; i < planeSize; i++) {
-    float32Data[i] = imgData[i * 4] / 255.0;
-    float32Data[planeSize + i] = imgData[i * 4 + 1] / 255.0;
-    float32Data[2 * planeSize + i] = imgData[i * 4 + 2] / 255.0;
+    const r = imgData[i * 4];
+    const g = imgData[i * 4 + 1];
+    const b = imgData[i * 4 + 2];
+
+    // Формула яркости Grayscale (NTSC/PAL)
+    const gray = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+
+    // Заполнение трех каналов одинаковым значением серого
+    float32Data[i] = gray;                 // R
+    float32Data[planeSize + i] = gray;     // G
+    float32Data[2 * planeSize + i] = gray; // B
   }
 
   return new ort.Tensor('float32', float32Data, [1, 3, MODEL_SIZE, MODEL_SIZE]);
