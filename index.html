@@ -67,10 +67,56 @@
       text-align: center;
     }
 
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      width: 100%;
+      max-width: 800px;
+    }
+
     #outputCanvas {
       max-width: 100%;
       border: 1px solid #333333;
       border-radius: 8px;
+    }
+
+    /* Блок для вывода списка обнаруженных дефектов */
+    .detections-panel {
+      width: 100%;
+      background-color: #1e1e1e;
+      border: 1px solid #333333;
+      border-radius: 8px;
+      padding: 15px;
+      box-sizing: border-box;
+    }
+
+    .detections-panel h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 18px;
+      color: #ffffff;
+      border-bottom: 1px solid #333333;
+      padding-bottom: 8px;
+    }
+
+    #detectionsList {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #detectionsList li {
+      padding: 6px 10px;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      background-color: #2a2a2a;
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
     }
   </style>
 
@@ -94,9 +140,21 @@
 
   <div id="status">Нажмите "Загрузить модель" для начала работы.</div>
 
-  <!-- Видеопоток скрыт, отрисовка идёт на Canvas -->
-  <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
-  <canvas id="outputCanvas"></canvas>
+  <div class="main-container">
+    <!-- Скрытое видео для считывания кадров -->
+    <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
+    
+    <!-- Canvas с отрисовкой -->
+    <canvas id="outputCanvas"></canvas>
+
+    <!-- Текстовый блок вывода детекций -->
+    <div class="detections-panel">
+      <h3>Обнаруженные дефекты:</h3>
+      <ul id="detectionsList">
+        <li style="color: #888;">Список пуст</li>
+      </ul>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
