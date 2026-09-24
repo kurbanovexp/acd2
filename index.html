@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YOLOv8 Детекция Дефектов</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Подключаем ONNX Runtime Web через CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Детекция дефектов (YOLOv8 ONNX)</h1>
+    
+    <div class="controls">
+      <input type="file" id="imageInput" accept="image/*" disabled>
+      <span id="status">Загрузка модели...</span>
+    </div>
+
+    <div class="stage">
+      <canvas id="outputCanvas"></canvas>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
