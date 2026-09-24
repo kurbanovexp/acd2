@@ -18,6 +18,7 @@ const progressContainer = document.getElementById('progressContainer');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
 const statusText = document.getElementById('status');
+const detectionsList = document.getElementById('detectionsList');
 
 const video = document.getElementById('webcamVideo');
 const canvas = document.getElementById('outputCanvas');
@@ -132,13 +133,11 @@ function preprocess(source) {
     const g = imgData[i * 4 + 1];
     const b = imgData[i * 4 + 2];
 
-    // Формула яркости Grayscale (NTSC/PAL)
     const gray = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
 
-    // Заполнение трех каналов одинаковым значением серого
-    float32Data[i] = gray;                 // R
-    float32Data[planeSize + i] = gray;     // G
-    float32Data[2 * planeSize + i] = gray; // B
+    float32Data[i] = gray;
+    float32Data[planeSize + i] = gray;
+    float32Data[2 * planeSize + i] = gray;
   }
 
   return new ort.Tensor('float32', float32Data, [1, 3, MODEL_SIZE, MODEL_SIZE]);
@@ -215,6 +214,30 @@ function calculateIoU(a, b) {
   return unionArea === 0 ? 0 : interArea / unionArea;
 }
 
+// --- Обновление списка детекций в панели UI ---
+function updateDetectionsList(boxes) {
+  detectionsList.innerHTML = '';
+
+  if (boxes.length === 0) {
+    const emptyItem = document.createElement('li');
+    emptyItem.style.color = '#888';
+    emptyItem.textContent = 'Дефекты не обнаружены';
+    detectionsList.appendChild(emptyItem);
+    return;
+  }
+
+  boxes.forEach(box => {
+    const li = document.createElement('li');
+    const color = COLORS[box.classId];
+    
+    li.innerHTML = `
+      <span style="border-left: 4px solid ${color}; padding-left: 8px;">${box.label}</span>
+      <strong>${(box.score * 100).toFixed(1)}%</strong>
+    `;
+    detectionsList.appendChild(li);
+  });
+}
+
 // --- Отрисовка результатов ---
 function renderResults(boxes) {
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -238,6 +261,8 @@ function renderResults(boxes) {
     ctx.fillStyle = "#ffffff";
     ctx.fillText(text, box.x + 4, box.y - 4);
   });
+
+  updateDetectionsList(boxes);
 }
 
 // --- Цикл обработки кадров ---
