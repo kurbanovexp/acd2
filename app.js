@@ -12,39 +12,109 @@ const IOU_THRESHOLD = 0.45;
 let session = null;
 let isProcessing = false;
 
-const video = document.getElementById('webcamVideo');
+const loadModelBtn = document.getElementById('loadModelBtn');
+const startCameraBtn = document.getElementById('startCameraBtn');
+const progressContainer = document.getElementById('progressContainer');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
 const statusText = document.getElementById('status');
+
+const video = document.getElementById('webcamVideo');
 const canvas = document.getElementById('outputCanvas');
 const ctx = canvas.getContext('2d');
 
 const COLORS = LABELS.map((_, i) => `hsl(${(i * 360) / LABELS.length}, 100%, 50%)`);
 
-async function init() {
+// --- ШАГ 1: Загрузка модели с отслеживанием прогресса ---
+loadModelBtn.addEventListener('click', async () => {
+  loadModelBtn.disabled = true;
+  statusText.textContent = 'Скачивание модели...';
+  progressContainer.style.display = 'block';
+
   try {
+    const response = await fetch('./model.onnx');
+    if (!response.ok) throw new Error(`Ошибка загрузки: ${response.statusText}`);
+
+    const contentLength = response.headers.get('content-length');
+    const total = parseInt(contentLength, 10) || 0;
+    let loaded = 0;
+
+    const reader = response.body.getReader();
+    const chunks = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      chunks.push(value);
+      loaded += value.length;
+
+      if (total) {
+        const percent = Math.round((loaded / total) * 100);
+        progressBar.value = percent;
+        progressText.textContent = `${percent}%`;
+      }
+    }
+
+    const modelBuffer = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      modelBuffer.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    statusText.textContent = 'Инициализация ONNX Runtime...';
+
     ort.env.wasm.numThreads = 1;
-    session = await ort.InferenceSession.create('./model.onnx', {
+    session = await ort.InferenceSession.create(modelBuffer.buffer, {
       executionProviders: ['webgpu', 'wasm']
     });
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
-    });
-    
+    statusText.textContent = 'Модель готова! Нажмите "Открыть камеру".';
+    progressContainer.style.display = 'none';
+    startCameraBtn.disabled = false;
+  } catch (error) {
+    console.error(error);
+    statusText.textContent = 'Ошибка при загрузке модели. Проверьте консоль.';
+    loadModelBtn.disabled = false;
+  }
+});
+
+// --- ШАГ 2: Открытие камеры ---
+startCameraBtn.addEventListener('click', async () => {
+  startCameraBtn.disabled = true;
+  statusText.textContent = 'Запрос доступа к камере...';
+
+  try {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+    } catch (e) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+    }
+
     video.srcObject = stream;
     await video.play();
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
-    statusText.textContent = 'Работает';
+    statusText.textContent = 'Камера подключена. Детекция запущена.';
     requestAnimationFrame(processFrame);
   } catch (error) {
     console.error(error);
-    statusText.textContent = 'Ошибка доступа к камере или загрузки модели.';
+    statusText.textContent = 'Ошибка доступа к камере.';
+    startCameraBtn.disabled = false;
   }
-}
+});
 
+// --- Препроцессинг кадров ---
 function preprocess(source) {
   const offscreen = document.createElement('canvas');
   offscreen.width = MODEL_SIZE;
@@ -66,6 +136,7 @@ function preprocess(source) {
   return new ort.Tensor('float32', float32Data, [1, 3, MODEL_SIZE, MODEL_SIZE]);
 }
 
+// --- Постпроцессинг YOLOv8 ---
 function parseOutput(data, origW, origH) {
   const anchors = 8400;
   const numClasses = 18;
@@ -136,6 +207,7 @@ function calculateIoU(a, b) {
   return unionArea === 0 ? 0 : interArea / unionArea;
 }
 
+// --- Отрисовка результатов ---
 function renderResults(boxes) {
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -160,6 +232,7 @@ function renderResults(boxes) {
   });
 }
 
+// --- Цикл обработки кадров ---
 async function processFrame() {
   if (isProcessing) {
     requestAnimationFrame(processFrame);
@@ -181,5 +254,3 @@ async function processFrame() {
   isProcessing = false;
   requestAnimationFrame(processFrame);
 }
-
-init();
